@@ -11,9 +11,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "next": "15.5.4",
+    "next": "^15.5.25",
     "react": "19.1.1",
     "react-dom": "19.1.1"
+  },
+  "overrides": {
+    "sharp": "^0.35.5",
+    "postcss": "^8.5.23"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.13",
@@ -21,7 +25,7 @@
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
     "eslint": "^9.34.0",
-    "eslint-config-next": "15.5.4",
+    "eslint-config-next": "^15.5.25",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
