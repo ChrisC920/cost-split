@@ -1,6 +1,7 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { AppBar } from "@/components/AppBar";
 import { EntryEditor } from "@/components/EntryEditor";
 import { GroupGate } from "@/components/GroupGate";
@@ -9,13 +10,19 @@ import { useGroup } from "@/lib/useGroup";
 
 export default function EditEntryPage() {
   const { group, ready, missing } = useGroup();
+  const router = useRouter();
   const params = useParams<{ entryId: string }>();
   const entryId = typeof params.entryId === "string" ? params.entryId : "";
   const entry = group?.entries.find((e) => e.id === entryId);
+  useEffect(() => {
+    if (group && entry?.kind === "expense" && entry.receiptItems) {
+      router.replace(`/g/${group.id}/receipt/${entry.id}`);
+    }
+  }, [entry, group, router]);
 
   return (
     <GroupGate ready={ready} missing={missing}>
-      {group && entry ? (
+      {group && entry?.kind === "expense" && entry.receiptItems ? null : group && entry ? (
         <EntryEditor group={group} existing={entry} />
       ) : group ? (
         <>

@@ -38,7 +38,7 @@ export function EntryEditor({
   initialKind?: "expense" | "transfer";
 }) {
   const router = useRouter();
-  const { addEntry, updateEntry, removeEntry } = useStore();
+  const { addEntry, updateEntry, removeEntry, waitForSync } = useStore();
 
   const [kind, setKind] = useState<"expense" | "transfer">(existing?.kind ?? initialKind);
   const [amountText, setAmountText] = useState(
@@ -139,7 +139,8 @@ export function EntryEditor({
     setFormError(null);
     try {
       const dataUrl = await fileToDataUrl(file);
-      const id = photoId ?? newId();
+      const id = photoId ?? `${group.id}/${newId()}.jpg`;
+      await waitForSync(group.id);
       await putPhoto(id, dataUrl);
       setPhotoId(id);
       setPhotoData(dataUrl);

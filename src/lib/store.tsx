@@ -11,7 +11,11 @@ import {
   type ReactNode,
 } from "react";
 import { newId } from "./id";
-import { deletePhoto } from "./photos";
+import {
+  cloud, cloudEnabled, createCloudGroup, deleteCloudGroup, loadCloud,
+  mutateCloudGroup, setCloudClaim,
+} from "./cloud";
+import { deletePhoto, getPhoto, putPhoto } from "./photos";
 import { createStorage, emptyData, STORAGE_KEY, migrate } from "./storage";
 import type { AppData, Entry, Group, Member } from "./types";
 
@@ -36,15 +40,47 @@ interface StoreValue {
   addEntry(groupId: string, entry: Entry): void;
   updateEntry(groupId: string, entry: Entry): void;
   removeEntry(groupId: string, entryId: string): void;
+  getInvite(groupId: string): string | undefined;
+  getIdentity(groupId: string): string | undefined;
+  isOwner(groupId: string): boolean;
+  refresh(): Promise<void>;
+  waitForSync(groupId: string): Promise<void>;
+  setReceiptClaim(groupId: string, entryId: string, itemId: string, selected: boolean): Promise<void>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
+
+const messageOf = (cause: unknown, fallback: string) =>
+  cause && typeof cause === "object" && "message" in cause && typeof cause.message === "string"
+    ? cause.message : fallback;
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData>(emptyData);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [invites, setInvites] = useState<Record<string, string>>({});
+  const [identities, setIdentities] = useState<Record<string, string>>({});
+  const [owners, setOwners] = useState<Record<string, boolean>>({});
   const storage = useMemo(() => createStorage(), []);
+  const pending = useRef(new Map<string, Promise<void>>());
+
+  const refresh = useCallback(async () => {
+    if (!cloudEnabled) return;
+    const snapshot = await loadCloud();
+    setData({ version: 1, groups: snapshot.groups });
+    setInvites(snapshot.invites);
+    setIdentities(snapshot.identities);
+    setOwners(snapshot.owners);
+  }, []);
+
+  const enqueue = useCallback((id: string, job: () => Promise<void>) => {
+    if (!cloudEnabled) return;
+    const previous = pending.current.get(id) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(job).then(refresh).catch((cause: unknown) => {
+      setError(messageOf(cause, "Couldn't sync your changes."));
+    });
+    pending.current.set(id, next);
+  }, [refresh]);
 
   // Skip persisting the initial empty state, which would clobber real data
   // before the first load resolves.
@@ -52,11 +88,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    storage
-      .load()
-      .then((loadedData) => {
+    storage.load().then(async (loadedData) => {
         if (cancelled) return;
         setData(loadedData);
+        if (cloudEnabled) {
+          try {
+            for (const group of loadedData.groups) {
+              try { await createCloudGroup(group); }
+              catch (cause) {
+                // A group already uploaded by this browser is expected.
+                if (!(cause && typeof cause === "object" && "code" in cause && cause.code === "23505")) throw cause;
+              }
+              for (const entry of group.entries) {
+                if (!entry.photoId || entry.photoId.includes("/")) continue;
+                const image = await getPhoto(entry.photoId);
+                if (!image) continue;
+                const oldId = entry.photoId;
+                const newPhotoId = `${group.id}/${entry.id}.jpg`;
+                await putPhoto(newPhotoId, image);
+                await mutateCloudGroup(group.id, (remote) => ({ ...remote, entries: remote.entries.map((item) =>
+                  item.id === entry.id && item.photoId === oldId ? { ...item, photoId: newPhotoId } : item,
+                ) }));
+              }
+            }
+            if (!cancelled) await refresh();
+          } catch (cause) {
+            if (!cancelled) setError(messageOf(cause, "Couldn't connect to Supabase."));
+          }
+        }
       })
       .finally(() => {
         if (cancelled) return;
@@ -66,7 +125,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [storage]);
+  }, [storage, refresh]);
+
+  useEffect(() => {
+    if (!cloudEnabled) return;
+    const channel = cloud().channel("cost-split")
+      .on("postgres_changes", { event: "*", schema: "public", table: "cost_groups" }, () => void refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "cost_receipt_claims" }, () => void refresh())
+      .subscribe();
+    return () => { void cloud().removeChannel(channel); };
+  }, [refresh]);
 
   useEffect(() => {
     if (!loaded.current) return;
@@ -78,6 +146,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Keep two tabs of the same app in step.
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
+      if (cloudEnabled) return;
       if (event.key !== STORAGE_KEY || event.newValue === null) return;
       try {
         setData(migrate(JSON.parse(event.newValue)));
@@ -96,7 +165,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         group.id === groupId ? { ...fn(group), updatedAt: Date.now() } : group,
       ),
     }));
-  }, []);
+    enqueue(groupId, () => mutateCloudGroup(groupId, fn));
+  }, [enqueue]);
 
   const value = useMemo<StoreValue>(() => {
     const getGroup = (id: string) => data.groups.find((g) => g.id === id);
@@ -124,6 +194,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           updatedAt: now,
         };
         setData((current) => ({ ...current, groups: [group, ...current.groups] }));
+        enqueue(group.id, () => createCloudGroup(group));
         return group;
       },
 
@@ -133,20 +204,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       deleteGroup(id) {
         const group = getGroup(id);
-        // Reclaim the IndexedDB space the group's receipts were using.
-        for (const entry of group?.entries ?? []) {
-          if (entry.photoId) void deletePhoto(entry.photoId);
-        }
         setData((current) => ({
           ...current,
           groups: current.groups.filter((g) => g.id !== id),
         }));
+        if (!cloudEnabled) {
+          for (const entry of group?.entries ?? []) if (entry.photoId) void deletePhoto(entry.photoId);
+        }
+        enqueue(id, async () => {
+          for (const entry of group?.entries ?? []) {
+            if (entry.photoId) await deletePhoto(entry.photoId);
+          }
+          await deleteCloudGroup(id);
+        });
       },
 
       importGroup(group) {
         // Re-key so an import can never overwrite a group already on this device.
         const fresh: Group = { ...group, id: newId(), updatedAt: Date.now() };
         setData((current) => ({ ...current, groups: [fresh, ...current.groups] }));
+        enqueue(fresh.id, () => createCloudGroup(fresh));
         return fresh;
       },
 
@@ -198,8 +275,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           entries: group.entries.filter((e) => e.id !== entryId),
         }));
       },
+      getInvite: (groupId) => invites[groupId],
+      getIdentity: (groupId) => identities[groupId],
+      isOwner: (groupId) => owners[groupId] ?? false,
+      refresh,
+      waitForSync: (groupId) => pending.current.get(groupId) ?? Promise.resolve(),
+      async setReceiptClaim(groupId, entryId, itemId, selected) {
+        const memberId = identities[groupId];
+        if (!memberId) throw new Error("Join this group as a person first.");
+        await setCloudClaim(groupId, entryId, itemId, memberId, selected);
+        await refresh();
+      },
     };
-  }, [data, ready, error, mutateGroup]);
+  }, [data, ready, error, mutateGroup, enqueue, invites, identities, owners, refresh]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

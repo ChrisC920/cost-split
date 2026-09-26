@@ -7,6 +7,7 @@ import { GroupGate } from "@/components/GroupGate";
 import { Money } from "@/components/Money";
 import { Avatar, Banner, Button, Card, EmptyState, LinkButton, Screen } from "@/components/ui";
 import { newId } from "@/lib/id";
+import { formatMoney } from "@/lib/money";
 import { computeBalances, settle, type Payment } from "@/lib/settle";
 import { useStore } from "@/lib/store";
 import type { Group } from "@/lib/types";
@@ -32,7 +33,7 @@ function SettleView({ group }: { group: Group }) {
   const memberOf = (id: string) => group.members.find((m) => m.id === id);
 
   /** Log the payment as a transfer so the balances actually clear. */
-  const markPaid = (payment: Payment) => {
+  const recordPayment = (payment: Payment) => {
     const now = Date.now();
     const local = new Date(now - new Date().getTimezoneOffset() * 60_000);
     addEntry(group.id, {
@@ -49,9 +50,14 @@ function SettleView({ group }: { group: Group }) {
     });
   };
 
+  const markPaid = (payment: Payment) => {
+    if (!window.confirm(`Record ${nameOf(payment.fromId)} paying ${nameOf(payment.toId)} ${formatMoney(payment.amount, group.baseCurrency)}?`)) return;
+    recordPayment(payment);
+  };
+
   const markAllPaid = () => {
     if (!window.confirm(`Record all ${payments.length} payments as made?`)) return;
-    for (const payment of payments) markPaid(payment);
+    for (const payment of payments) recordPayment(payment);
     router.push(`/g/${group.id}`);
   };
 

@@ -32,6 +32,14 @@ export interface Member {
   colorIndex: number;
 }
 
+/** A receipt line. Several people may claim the same line and share its cost. */
+export interface ReceiptItem {
+  id: string;
+  name: string;
+  amount: number;
+  memberIds: string[];
+}
+
 export const EXPENSE_CATEGORIES = [
   "general",
   "food",
@@ -64,6 +72,7 @@ export interface Expense {
   note?: string;
   /** Key into the IndexedDB photo store, if a receipt is attached. */
   photoId?: string;
+  receiptItems?: ReceiptItem[];
   createdAt: number;
   updatedAt: number;
 }

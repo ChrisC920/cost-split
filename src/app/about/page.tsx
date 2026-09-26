@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LinkButton, Screen } from "@/components/ui";
+import { cloudEnabled } from "@/lib/cloud";
 
 export const metadata: Metadata = {
   title: "How it works",
@@ -31,14 +32,22 @@ export default function AboutPage() {
           <section>
             <h2 className="font-semibold text-base mb-1.5">Where your data lives</h2>
             <p className="text-muted">
-              Groups are saved in this browser, on this device. There is no account and no server
-              copy — which is why the app keeps working with no signal, and why clearing your
-              browser data removes your groups. Receipt photos are kept separately in the
-              browser&rsquo;s larger local database so they don&rsquo;t crowd out everything else.
+              {cloudEnabled ?
+                "Groups and receipt photos sync through Supabase. Each device gets a private anonymous session, and people join a group with its invite link. Keep the link within your group." :
+                "Groups and receipt photos are saved in this browser. Clearing browser data removes them."}
             </p>
             <p className="text-muted mt-2">
-              To move a group to another device, open it, go to <strong>Settings</strong> and export
-              it as a file, then import that file on the other device.
+              {cloudEnabled ? "Anonymous sessions stay on one device. Export a group for a separate backup." :
+                "To move a group, export it from Settings and import the file on another device. Photos are not included."}
+            </p>
+          </section>
+
+          <section>
+            <h2 className="font-semibold text-base mb-1.5">Scanning a receipt</h2>
+            <p className="text-muted">
+              Scan a photo to add its items and total. Check the names and prices against the saved
+              photo. Select your name and tap the items you want. If several people pick an item,
+              they share its cost equally. Tax and tip are spread across items by price.
             </p>
           </section>
 
@@ -107,8 +116,8 @@ export default function AboutPage() {
           <section>
             <h2 className="font-semibold text-base mb-1.5">Privacy</h2>
             <p className="text-muted">
-              Nothing you enter is sent anywhere. The one optional network call is fetching exchange
-              rates, which sends only the currency codes you asked about.
+              {cloudEnabled ? "Group data and receipt photos go to the connected Supabase project. Receipt text recognition runs in your browser." :
+                "Receipt text recognition runs in your browser. The optional exchange rate lookup sends only currency codes."}
             </p>
           </section>
         </div>

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Money } from "@/components/Money";
 import { Button, Card, Field, Input, LinkButton, Screen, Select } from "@/components/ui";
 import { COMMON_CURRENCIES } from "@/lib/currencies";
+import { cloudEnabled } from "@/lib/cloud";
 import { useStore } from "@/lib/store";
 import { summarize } from "@/lib/summary";
 
@@ -89,7 +90,7 @@ export default function HomePage() {
 
         {ready && data.groups.length > 0 ? (
           <p className="text-[13px] text-faint text-center mt-8 leading-relaxed">
-            Groups are stored in this browser only.{" "}
+            {cloudEnabled ? "Groups sync with people who join by invite link." : "Groups are stored in this browser only."}{" "}
             <Link href="/about" className="underline underline-offset-2 hover:text-muted">
               How this works
             </Link>
@@ -116,23 +117,13 @@ function Logo() {
 }
 
 function Landing({ onStart }: { onStart: () => void }) {
-  const features = [
-    ["Split unevenly", "Equal shares, coefficients, exact amounts or percentages."],
-    ["Settle in the fewest payments", "The payback plan nets everyone out and minimises transfers."],
-    ["Any currency", "Log costs as you paid them; balances convert to the group's currency."],
-    ["Loans and paybacks", "Record money moving between two people, not just shared costs."],
-    ["Receipts", "Attach a photo to any expense."],
-    ["Offline, no account", "Everything runs in your browser and keeps working with no signal."],
-  ];
-
   return (
     <div className="pt-10 pb-4">
       <h2 className="text-[28px] leading-tight font-semibold tracking-tight">
-        Share costs with a group, then settle up cleanly.
+        Split a receipt with your group.
       </h2>
       <p className="text-muted mt-3 leading-relaxed">
-        Keep track of who paid for what on a trip, in a flat share, or over a long weekend —
-        then find out who owes whom, in as few payments as possible.
+        Add your people, scan a receipt, and pick the items each person wants. See what everyone owes right away.
       </p>
 
       <div className="mt-6 flex flex-wrap gap-3">
@@ -144,14 +135,7 @@ function Landing({ onStart }: { onStart: () => void }) {
         </LinkButton>
       </div>
 
-      <dl className="mt-10 grid gap-x-6 gap-y-5 sm:grid-cols-2">
-        {features.map(([title, body]) => (
-          <div key={title}>
-            <dt className="font-medium text-[15px]">{title}</dt>
-            <dd className="text-sm text-muted mt-1 leading-relaxed">{body}</dd>
-          </div>
-        ))}
-      </dl>
+      <p className="mt-10 text-sm text-muted">{cloudEnabled ? "No password needed. Share an invite link so everyone can choose their items." : "No account needed. Groups are saved in this browser."}</p>
     </div>
   );
 }
@@ -162,6 +146,7 @@ function CreateGroupForm({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [names, setNames] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -169,6 +154,10 @@ function CreateGroupForm({ onClose }: { onClose: () => void }) {
       .split(/[\n,]/)
       .map((n) => n.trim())
       .filter(Boolean);
+    if (!memberNames.length) {
+      setProblem("Add at least one person.");
+      return;
+    }
     const group = createGroup({ name, baseCurrency: currency, memberNames });
     router.push(`/g/${group.id}`);
   };
@@ -196,7 +185,7 @@ function CreateGroupForm({ onClose }: { onClose: () => void }) {
           </Select>
         </Field>
 
-        <Field label="People" hint="One per line, or separated by commas. You can add more later.">
+        <Field label="People" hint={cloudEnabled ? "Put your name first. Other people will claim their names through the invite link." : "One per line, or separated by commas. You can add more later."}>
           <textarea
             value={names}
             onChange={(e) => setNames(e.target.value)}
@@ -205,6 +194,7 @@ function CreateGroupForm({ onClose }: { onClose: () => void }) {
             className="w-full bg-surface border border-border rounded-xl px-3.5 py-2.5 placeholder:text-faint focus:border-accent focus:outline-none transition-colors resize-y"
           />
         </Field>
+        {problem ? <p role="alert" className="text-sm text-negative">{problem}</p> : null}
 
         <div className="flex gap-2 pt-1">
           <Button type="submit" variant="primary" className="flex-1">

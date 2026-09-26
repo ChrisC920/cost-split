@@ -3,12 +3,11 @@
 A web version of the *Cost Split* iPhone app: track shared costs within a group,
 split them evenly or unevenly, and settle up in as few payments as possible.
 
-Built with Next.js (App Router), TypeScript and Tailwind, and deployable to
-Vercel with no configuration or environment variables.
+Built with Next.js, TypeScript, Tailwind, and Supabase.
 
 ## What it does
 
-- **Groups** of people, created without an account or sign-up.
+- **Groups** with invite links. Each person joins under their own name without a password.
 - **Expenses** with one payer and any set of participants.
 - **Four ways to split** — equally, by coefficient/shares, by exact amounts, or
   by percentage. Uneven splits are validated rather than silently rescaled.
@@ -17,16 +16,20 @@ Vercel with no configuration or environment variables.
 - **Multiple currencies**, with rates entered by hand or fetched on demand.
   Balances are reported in the group's own currency.
 - **Payback plan** that clears every balance in the fewest payments.
-- **Receipt photos** attached to any entry.
+- **Receipt scanning** uses Gemini 3.5 Flash-Lite to read item names and prices, stores the photo,
+  and creates an expense. Review the scan, then choose which people share each item.
+  Tax, tip, and other differences between item prices and the total are spread
+  across the selected items in proportion to their prices.
 - **Reports** — per-person totals, payback plan, category and currency
   breakdowns, all entries — printable or exportable as CSV.
 - **Export / import** a group as a file to move it between devices.
-- **Works offline**, and installs as a PWA.
+- **Shared receipts** keep the photo and each person's item choices in sync across devices.
 
 ## Running it
 
 ```bash
 npm install
+cp .env.example .env.local # set Supabase settings and a Gemini API key
 npm run dev      # http://localhost:3000
 ```
 
@@ -39,9 +42,12 @@ npm run build
 
 ## Deploying
 
-Import the repository into Vercel and accept the defaults — it's a standard
-Next.js app with no environment variables and no external services. Any other
-Node host works too via `npm run build && npm run start`.
+Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and
+`GEMINI_API_KEY` on the host. Keep the Gemini key server-side. The free Gemini
+tier has request limits and Google may use free-tier inputs to improve its products.
+Enable Anonymous Sign-Ins in Supabase Auth. The schema is in
+`supabase/schema.sql` and has been applied
+to the Cost Split project. Never put a service role key in a public environment variable.
 
 ## How it's put together
 
@@ -51,9 +57,10 @@ src/lib/          domain logic, no React
   money.ts        parsing, formatting and currency conversion
   split.ts        dividing an expense between participants
   settle.ts       balances, and the minimal payback plan
-  storage.ts      the persistence interface + its localStorage implementation
-  photos.ts       receipt storage in IndexedDB
-  store.tsx       React context wrapping the storage layer
+  storage.ts      local cache and fallback
+  cloud.ts        Supabase Auth, groups, receipt choices, and sync
+  photos.ts       local cache and private Supabase Storage
+  store.tsx       React context wrapping local and cloud state
 src/components/   shared UI
 src/app/          routes
 ```
@@ -76,20 +83,16 @@ result against a brute-force minimum over 300 randomly generated groups.
 
 ### Where data lives
 
-Groups are stored in the browser's `localStorage`; receipt photos go in
-IndexedDB, so a few large images can't exhaust the space the group data needs.
-Nothing is sent to a server — which is what makes the app work offline and
-without an account, and it means clearing browser data clears the groups.
+With Supabase configured, groups and item choices live in Postgres and receipt
+photos live in a private Storage bucket. Row level policies restrict access to
+people who joined through a group's invite. A person's receipt claim is tied to
+their anonymous Auth session. Realtime refreshes group balances on other devices.
+The browser keeps a local copy for quick loading. Existing local groups upload
+when the configured app first opens.
 
-All reads and writes go through the `Storage` interface in `src/lib/storage.ts`.
-Adding a server-backed, multi-device sync later means implementing that
-interface and changing the one line in `createStorage()`; no UI code reads
-storage directly.
-
-## Not implemented
-
-The original app syncs groups between devices through the developer's cloud
-service, so several people can add costs from their own phones and get push
-notifications. This clone is local-first and has no backend, so sharing is
-export/import rather than live sync. See the note above on where that would slot
-in.
+The server sends a compressed receipt photo to Gemini for scanning. The photo
+also goes to Supabase Storage so group members can review it. If scanning fails,
+the receipt stays in the group and its details can be entered by hand.
+An anonymous session belongs to one browser. Clearing its data loses that
+identity, so someone already assigned to that name cannot simply rejoin as it.
+Export files include group numbers but not receipt photos.

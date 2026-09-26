@@ -8,6 +8,7 @@ import { GroupGate } from "@/components/GroupGate";
 import { Money } from "@/components/Money";
 import { Avatar, Banner, Card, EmptyState, LinkButton, Screen, Segmented } from "@/components/ui";
 import { convert } from "@/lib/money";
+import { cloudEnabled } from "@/lib/cloud";
 import { computeBalances, settle } from "@/lib/settle";
 import { useGroup } from "@/lib/useGroup";
 import type { Entry, Group } from "@/lib/types";
@@ -112,16 +113,22 @@ function GroupView({ group, tab, onTab }: { group: Group; tab: Tab; onTab: (t: T
 
         <div className="mt-4 flex gap-2 no-print">
           <LinkButton
-            href={`/g/${group.id}/entry/new`}
+            href={`/g/${group.id}/receipt/new`}
             variant="primary"
+            className={noMembers ? "flex-1 pointer-events-none opacity-45" : "flex-1"}
+          >
+            Scan receipt
+          </LinkButton>
+          <LinkButton
+            href={`/g/${group.id}/entry/new`}
             className={noMembers ? "flex-1 pointer-events-none opacity-45" : "flex-1"}
           >
             Add expense
           </LinkButton>
-          <LinkButton href={`/g/${group.id}/settle`} className="flex-1">
-            Settle up
-          </LinkButton>
         </div>
+        {cloudEnabled ? <p className="mt-2 text-sm text-muted no-print">
+          Each person can pick items on their phone. <Link className="text-accent underline underline-offset-2" href={`/g/${group.id}/settings`}>Copy the invite link</Link>
+        </p> : null}
 
         <div className="mt-5 no-print">
           <Segmented
@@ -141,11 +148,11 @@ function GroupView({ group, tab, onTab }: { group: Group; tab: Tab; onTab: (t: T
               <Card>
                 <EmptyState
                   title="Nothing logged yet"
-                  body="Add the first expense — a meal, a hotel, a taxi — and pick who it should be split between."
+                  body="Scan a receipt or add an expense to get started."
                   action={
                     noMembers ? undefined : (
-                      <LinkButton href={`/g/${group.id}/entry/new`} variant="primary">
-                        Add the first expense
+                      <LinkButton href={`/g/${group.id}/receipt/new`} variant="primary">
+                        Scan a receipt
                       </LinkButton>
                     )
                   }
@@ -206,6 +213,7 @@ function GroupView({ group, tab, onTab }: { group: Group; tab: Tab; onTab: (t: T
         )}
 
         <div className="mt-6 flex flex-wrap gap-2 no-print">
+          <LinkButton href={`/g/${group.id}/settle`} size="sm">Settle up</LinkButton>
           <LinkButton href={`/g/${group.id}/entry/new?kind=transfer`} size="sm"
             className={noMembers ? "pointer-events-none opacity-45" : undefined}>
             Record a payback

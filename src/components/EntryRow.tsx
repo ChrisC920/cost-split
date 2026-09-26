@@ -64,7 +64,7 @@ export function EntryRow({ group, entry }: { group: Group; entry: Entry }) {
 
   return (
     <Link
-      href={`/g/${group.id}/entry/${entry.id}`}
+      href={entry.receiptItems ? `/g/${group.id}/receipt/${entry.id}` : `/g/${group.id}/entry/${entry.id}`}
       className="flex items-center gap-3 px-4 py-3 hover:bg-surface-2 transition-colors"
     >
       <span

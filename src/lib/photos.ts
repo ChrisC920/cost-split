@@ -6,6 +6,8 @@
  * fails should never take the group's numbers down with it.
  */
 
+import { cloud, cloudEnabled, cloudUserId } from "./cloud";
+
 const DB_NAME = "cost-split-photos";
 const DB_VERSION = 1;
 const STORE = "photos";
@@ -40,27 +42,53 @@ export async function putPhoto(id: string, dataUrl: string): Promise<void> {
   } finally {
     db.close();
   }
+  if (cloudEnabled && id.includes("/")) {
+    await cloudUserId();
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const { error } = await cloud().storage.from("cost-receipts").upload(id, blob, {
+      contentType: blob.type || "image/jpeg", upsert: true,
+    });
+    if (error) throw error;
+  }
 }
 
 export async function getPhoto(id: string): Promise<string | null> {
   try {
     const db = await openDb();
     try {
-      return await new Promise<string | null>((resolve, reject) => {
+      const local = await new Promise<string | null>((resolve, reject) => {
         const tx = db.transaction(STORE, "readonly");
         const request = tx.objectStore(STORE).get(id);
         request.onsuccess = () => resolve((request.result as string | undefined) ?? null);
         request.onerror = () => reject(request.error);
       });
+      if (local) return local;
     } finally {
       db.close();
     }
-  } catch {
-    return null;
+  } catch { /* Try the shared photo store below. */ }
+  if (cloudEnabled && id.includes("/")) {
+    try {
+      await cloudUserId();
+      const { data, error } = await cloud().storage.from("cost-receipts").download(id);
+      if (error || !data) return null;
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(data);
+      });
+    } catch { return null; }
   }
+  return null;
 }
 
 export async function deletePhoto(id: string): Promise<void> {
+  if (cloudEnabled && id.includes("/")) {
+    try { await cloudUserId(); await cloud().storage.from("cost-receipts").remove([id]); }
+    catch { /* Keep deletion of the entry usable if remote cleanup fails. */ }
+  }
   try {
     const db = await openDb();
     try {

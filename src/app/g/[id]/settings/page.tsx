@@ -6,6 +6,7 @@ import { AppBar } from "@/components/AppBar";
 import { GroupGate } from "@/components/GroupGate";
 import { Avatar, Banner, Button, Card, Field, Input, Screen, Select } from "@/components/ui";
 import { MEMBER_COLORS } from "@/lib/colors";
+import { cloudEnabled } from "@/lib/cloud";
 import { COMMON_CURRENCIES, fetchRates } from "@/lib/currencies";
 import { downloadText, exportGroupJson, parseGroupJson, safeFilename } from "@/lib/export";
 import { computeBalances } from "@/lib/settle";
@@ -24,7 +25,7 @@ export default function SettingsPage() {
 }
 
 function SettingsView({ group }: { group: Group }) {
-  const { updateGroup, deleteGroup, addMember, updateMember, removeMember, importGroup } = useStore();
+  const { updateGroup, deleteGroup, addMember, updateMember, removeMember, importGroup, getInvite, getIdentity, isOwner } = useStore();
   const router = useRouter();
 
   const [newMember, setNewMember] = useState("");
@@ -32,6 +33,8 @@ function SettingsView({ group }: { group: Group }) {
   const [problem, setProblem] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
+  const invite = getInvite(group.id);
+  const inviteLink = invite && typeof window !== "undefined" ? `${window.location.origin}/join/${invite}` : "";
 
   const { balances } = computeBalances(group);
   const balanceOf = (memberId: string) =>
@@ -72,6 +75,10 @@ function SettingsView({ group }: { group: Group }) {
       const imported = parseGroupJson(await file.text());
       if (!imported) {
         setProblem("That file isn't a Cost Split group export.");
+        return;
+      }
+      if (cloudEnabled && imported.members.length === 0) {
+        setProblem("Add at least one person to this group before importing it.");
         return;
       }
       const created = importGroup(imported);
@@ -144,6 +151,13 @@ function SettingsView({ group }: { group: Group }) {
             </Select>
           </Field>
         </Card>
+
+        {cloudEnabled ? <Card className="mt-4 p-4 space-y-3">
+          <h2 className="font-semibold">Invite your group</h2>
+          <p className="text-sm text-muted">You joined as {group.members.find((member) => member.id === getIdentity(group.id))?.name ?? "a group member"}. Send this link to the other people. Each person chooses their own name once.</p>
+          <Input aria-label="Group invite link" readOnly value={inviteLink} onFocus={(event) => event.target.select()} />
+          <Button disabled={!inviteLink} onClick={() => void navigator.clipboard.writeText(inviteLink).then(() => setNotice("Invite link copied."))}>Copy invite link</Button>
+        </Card> : null}
 
         <h2 className="text-xs font-semibold uppercase tracking-wider text-faint mt-6 mb-2 px-1">
           People
@@ -299,7 +313,7 @@ function SettingsView({ group }: { group: Group }) {
           </div>
         </Card>
 
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-faint mt-6 mb-2 px-1">
+        {(!cloudEnabled || isOwner(group.id)) ? <><h2 className="text-xs font-semibold uppercase tracking-wider text-faint mt-6 mb-2 px-1">
           Danger zone
         </h2>
         <Card className="p-4">
@@ -311,7 +325,7 @@ function SettingsView({ group }: { group: Group }) {
               Delete this group
             </Button>
           </div>
-        </Card>
+        </Card></> : null}
 
         <div className="h-8" />
       </Screen>
