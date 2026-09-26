@@ -13,9 +13,9 @@ import {
 import { newId } from "./id";
 import {
   cloud, cloudEnabled, createCloudGroup, deleteCloudGroup, loadCloud,
-  mutateCloudGroup, setCloudClaim,
+  mutateCloudGroup, setCloudClaim, inviteUsername, acceptInvitation,
 } from "./cloud";
-import { deletePhoto, getPhoto, putPhoto } from "./photos";
+import { deletePhoto } from "./photos";
 import { createStorage, emptyData, STORAGE_KEY, migrate } from "./storage";
 import type { AppData, Entry, Group, Member } from "./types";
 
@@ -46,6 +46,10 @@ interface StoreValue {
   refresh(): Promise<void>;
   waitForSync(groupId: string): Promise<void>;
   setReceiptClaim(groupId: string, entryId: string, itemId: string, selected: boolean): Promise<void>;
+  username: string | null;
+  invitations: { group_id: string; group_name: string }[];
+  invite(groupId: string, username: string): Promise<void>;
+  acceptInvite(groupId: string): Promise<void>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -61,16 +65,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [invites, setInvites] = useState<Record<string, string>>({});
   const [identities, setIdentities] = useState<Record<string, string>>({});
   const [owners, setOwners] = useState<Record<string, boolean>>({});
+  const [username, setUsername] = useState<string | null>(null);
+  const [invitations, setInvitations] = useState<{ group_id: string; group_name: string }[]>([]);
   const storage = useMemo(() => createStorage(), []);
   const pending = useRef(new Map<string, Promise<void>>());
 
   const refresh = useCallback(async () => {
     if (!cloudEnabled) return;
+    const { data: { session } } = await cloud().auth.getSession();
+    if (!session || session.user.is_anonymous) {
+      setData(emptyData()); setInvites({}); setIdentities({}); setOwners({});
+      setUsername(null); setInvitations([]);
+      return;
+    }
     const snapshot = await loadCloud();
     setData({ version: 1, groups: snapshot.groups });
     setInvites(snapshot.invites);
     setIdentities(snapshot.identities);
     setOwners(snapshot.owners);
+    setUsername(snapshot.username);
+    setInvitations(snapshot.invitations);
   }, []);
 
   const enqueue = useCallback((id: string, job: () => Promise<void>) => {
@@ -90,27 +104,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     storage.load().then(async (loadedData) => {
         if (cancelled) return;
-        setData(loadedData);
+        if (!cloudEnabled) setData(loadedData);
         if (cloudEnabled) {
           try {
-            for (const group of loadedData.groups) {
-              try { await createCloudGroup(group); }
-              catch (cause) {
-                // A group already uploaded by this browser is expected.
-                if (!(cause && typeof cause === "object" && "code" in cause && cause.code === "23505")) throw cause;
-              }
-              for (const entry of group.entries) {
-                if (!entry.photoId || entry.photoId.includes("/")) continue;
-                const image = await getPhoto(entry.photoId);
-                if (!image) continue;
-                const oldId = entry.photoId;
-                const newPhotoId = `${group.id}/${entry.id}.jpg`;
-                await putPhoto(newPhotoId, image);
-                await mutateCloudGroup(group.id, (remote) => ({ ...remote, entries: remote.entries.map((item) =>
-                  item.id === entry.id && item.photoId === oldId ? { ...item, photoId: newPhotoId } : item,
-                ) }));
-              }
-            }
+            const { data: { session } } = await cloud().auth.getSession();
+            if (!session || session.user.is_anonymous) return;
             if (!cancelled) await refresh();
           } catch (cause) {
             if (!cancelled) setError(messageOf(cause, "Couldn't connect to Supabase."));
@@ -132,6 +130,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const channel = cloud().channel("cost-split")
       .on("postgres_changes", { event: "*", schema: "public", table: "cost_groups" }, () => void refresh())
       .on("postgres_changes", { event: "*", schema: "public", table: "cost_receipt_claims" }, () => void refresh())
+      .on("postgres_changes", { event: "*", schema: "public", table: "cost_group_invitations" }, () => void refresh())
       .subscribe();
     return () => { void cloud().removeChannel(channel); };
   }, [refresh]);
@@ -286,8 +285,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await setCloudClaim(groupId, entryId, itemId, memberId, selected);
         await refresh();
       },
+      username,
+      invitations,
+      async invite(groupId, handle) {
+        await (pending.current.get(groupId) ?? Promise.resolve());
+        await inviteUsername(groupId, handle);
+        await refresh();
+      },
+      async acceptInvite(groupId) {
+        await acceptInvitation(groupId);
+        await refresh();
+      },
     };
-  }, [data, ready, error, mutateGroup, enqueue, invites, identities, owners, refresh]);
+  }, [data, ready, error, mutateGroup, enqueue, invites, identities, owners, refresh, username, invitations]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

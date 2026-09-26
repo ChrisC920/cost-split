@@ -25,7 +25,7 @@ export default function SettingsPage() {
 }
 
 function SettingsView({ group }: { group: Group }) {
-  const { updateGroup, deleteGroup, addMember, updateMember, removeMember, importGroup, getInvite, getIdentity, isOwner } = useStore();
+  const { updateGroup, deleteGroup, addMember, updateMember, removeMember, importGroup, isOwner, invite } = useStore();
   const router = useRouter();
 
   const [newMember, setNewMember] = useState("");
@@ -33,8 +33,8 @@ function SettingsView({ group }: { group: Group }) {
   const [problem, setProblem] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
-  const invite = getInvite(group.id);
-  const inviteLink = invite && typeof window !== "undefined" ? `${window.location.origin}/join/${invite}` : "";
+  const [inviteName, setInviteName] = useState("");
+  const [inviting, setInviting] = useState(false);
 
   const { balances } = computeBalances(group);
   const balanceOf = (memberId: string) =>
@@ -152,11 +152,20 @@ function SettingsView({ group }: { group: Group }) {
           </Field>
         </Card>
 
-        {cloudEnabled ? <Card className="mt-4 p-4 space-y-3">
-          <h2 className="font-semibold">Invite your group</h2>
-          <p className="text-sm text-muted">You joined as {group.members.find((member) => member.id === getIdentity(group.id))?.name ?? "a group member"}. Send this link to the other people. Each person chooses their own name once.</p>
-          <Input aria-label="Group invite link" readOnly value={inviteLink} onFocus={(event) => event.target.select()} />
-          <Button disabled={!inviteLink} onClick={() => void navigator.clipboard.writeText(inviteLink).then(() => setNotice("Invite link copied."))}>Copy invite link</Button>
+        {cloudEnabled && isOwner(group.id) ? <Card className="mt-4 p-4 space-y-3">
+          <h2 className="font-semibold">Invite by username</h2>
+          <p className="text-sm text-muted">Friends need an account first. Their invitation appears on their home screen.</p>
+          <form className="flex gap-2" onSubmit={(event) => {
+            event.preventDefault(); setInviting(true); setProblem(null); setNotice(null);
+            void invite(group.id, inviteName).then(() => {
+              setNotice(`Invitation sent to @${inviteName.trim().toLowerCase()}.`); setInviteName("");
+            }).catch((cause: unknown) => setProblem(cause instanceof Error ? cause.message : "Couldn't send invitation."))
+              .finally(() => setInviting(false));
+          }}>
+            <Input aria-label="Username to invite" value={inviteName} onChange={(event) => setInviteName(event.target.value)}
+              autoCapitalize="none" spellCheck={false} placeholder="username" required />
+            <Button type="submit" variant="primary" disabled={inviting || !inviteName.trim()}>Invite</Button>
+          </form>
         </Card> : null}
 
         <h2 className="text-xs font-semibold uppercase tracking-wider text-faint mt-6 mb-2 px-1">
@@ -184,12 +193,13 @@ function SettingsView({ group }: { group: Group }) {
                   <input
                     value={member.name}
                     onChange={(e) => updateMember(group.id, member.id, { name: e.target.value })}
+                    readOnly={cloudEnabled}
                     aria-label={`Name for ${member.name}`}
                     maxLength={40}
                     className="min-w-0 flex-1 bg-transparent border-none px-0 py-1 text-[15px] focus:outline-none focus:border-none"
                   />
 
-                  <button
+                  {!cloudEnabled ? <button
                     type="button"
                     onClick={() => tryRemoveMember(member.id, member.name)}
                     aria-label={`Remove ${member.name}`}
@@ -201,13 +211,13 @@ function SettingsView({ group }: { group: Group }) {
                       <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"
                         stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                  </button>
+                  </button> : null}
                 </li>
               );
             })}
           </ul>
 
-          <form
+          {!cloudEnabled ? <form
             onSubmit={(e) => {
               e.preventDefault();
               if (addMember(group.id, newMember)) setNewMember("");
@@ -224,7 +234,7 @@ function SettingsView({ group }: { group: Group }) {
             <Button type="submit" variant="primary" disabled={!newMember.trim()}>
               Add
             </Button>
-          </form>
+          </form> : null}
         </Card>
         {group.members.length === 0 ? (
           <p className="text-[13px] text-faint mt-2 px-1">
@@ -318,7 +328,7 @@ function SettingsView({ group }: { group: Group }) {
         </h2>
         <Card className="p-4">
           <p className="text-[15px] text-muted leading-relaxed">
-            Deleting removes the group, its entries and its receipts from this browser for good.
+            Deleting removes the group, its entries and its receipts for everyone.
           </p>
           <div className="mt-3">
             <Button variant="danger" onClick={removeGroup}>

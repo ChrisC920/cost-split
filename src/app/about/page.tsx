@@ -33,11 +33,11 @@ export default function AboutPage() {
             <h2 className="font-semibold text-base mb-1.5">Where your data lives</h2>
             <p className="text-muted">
               {cloudEnabled ?
-                "Groups and receipt photos sync through Supabase. Each device gets a private anonymous session, and people join a group with its invite link. Keep the link within your group." :
+                "Groups and receipt photos sync through Supabase. Sign in with your username and password on any device. Group owners invite registered usernames." :
                 "Groups and receipt photos are saved in this browser. Clearing browser data removes them."}
             </p>
             <p className="text-muted mt-2">
-              {cloudEnabled ? "Anonymous sessions stay on one device. Export a group for a separate backup." :
+              {cloudEnabled ? "Invitations appear on your home screen. Export a group for a separate backup." :
                 "To move a group, export it from Settings and import the file on another device. Photos are not included."}
             </p>
           </section>

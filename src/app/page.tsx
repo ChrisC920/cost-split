@@ -6,13 +6,15 @@ import { useState } from "react";
 import { Money } from "@/components/Money";
 import { Button, Card, Field, Input, LinkButton, Screen, Select } from "@/components/ui";
 import { COMMON_CURRENCIES } from "@/lib/currencies";
-import { cloudEnabled } from "@/lib/cloud";
+import { cloud, cloudEnabled } from "@/lib/cloud";
 import { useStore } from "@/lib/store";
 import { summarize } from "@/lib/summary";
 
 export default function HomePage() {
-  const { data, ready, error, dismissError } = useStore();
+  const { data, ready, error, dismissError, username, invitations, acceptInvite, refresh } = useStore();
   const [creating, setCreating] = useState(false);
+  const [inviteProblem, setInviteProblem] = useState<string | null>(null);
+  const [accepting, setAccepting] = useState<string | null>(null);
 
   return (
     <>
@@ -27,6 +29,7 @@ export default function HomePage() {
               New group
             </Button>
           ) : null}
+          {cloudEnabled ? <Button size="sm" onClick={() => void cloud().auth.signOut().then(() => refresh())}>Sign out</Button> : null}
         </div>
       </header>
 
@@ -41,6 +44,20 @@ export default function HomePage() {
         ) : null}
 
         {creating ? <CreateGroupForm onClose={() => setCreating(false)} /> : null}
+
+        {cloudEnabled && username ? <p className="mt-4 text-sm text-muted">Signed in as @{username}</p> : null}
+        {invitations.length > 0 ? <Card className="mt-4 p-4 space-y-3">
+          <h2 className="font-semibold">Your invitations</h2>
+          {invitations.map((invite) => <div key={invite.group_id} className="flex items-center justify-between gap-3">
+            <span className="truncate">{invite.group_name}</span>
+            <Button variant="primary" size="sm" disabled={accepting === invite.group_id} onClick={() => {
+              setAccepting(invite.group_id); setInviteProblem(null);
+              void acceptInvite(invite.group_id).catch((cause: unknown) => setInviteProblem(cause instanceof Error ? cause.message : "Couldn't join group."))
+                .finally(() => setAccepting(null));
+            }}>Join group</Button>
+          </div>)}
+          {inviteProblem ? <p role="alert" className="text-sm text-negative">{inviteProblem}</p> : null}
+        </Card> : null}
 
         {!ready ? (
           <div className="mt-6 space-y-3" aria-hidden="true">
@@ -90,7 +107,7 @@ export default function HomePage() {
 
         {ready && data.groups.length > 0 ? (
           <p className="text-[13px] text-faint text-center mt-8 leading-relaxed">
-            {cloudEnabled ? "Groups sync with people who join by invite link." : "Groups are stored in this browser only."}{" "}
+            {cloudEnabled ? "Invite people by username in group settings." : "Groups are stored in this browser only."}{" "}
             <Link href="/about" className="underline underline-offset-2 hover:text-muted">
               How this works
             </Link>
@@ -135,13 +152,13 @@ function Landing({ onStart }: { onStart: () => void }) {
         </LinkButton>
       </div>
 
-      <p className="mt-10 text-sm text-muted">{cloudEnabled ? "No password needed. Share an invite link so everyone can choose their items." : "No account needed. Groups are saved in this browser."}</p>
+      <p className="mt-10 text-sm text-muted">{cloudEnabled ? "Invite friends by username after creating your group." : "No account needed. Groups are saved in this browser."}</p>
     </div>
   );
 }
 
 function CreateGroupForm({ onClose }: { onClose: () => void }) {
-  const { createGroup } = useStore();
+  const { createGroup, username } = useStore();
   const router = useRouter();
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState("USD");
@@ -154,11 +171,11 @@ function CreateGroupForm({ onClose }: { onClose: () => void }) {
       .split(/[\n,]/)
       .map((n) => n.trim())
       .filter(Boolean);
-    if (!memberNames.length) {
+    if (!cloudEnabled && !memberNames.length) {
       setProblem("Add at least one person.");
       return;
     }
-    const group = createGroup({ name, baseCurrency: currency, memberNames });
+    const group = createGroup({ name, baseCurrency: currency, memberNames: cloudEnabled ? [username ?? "Me"] : memberNames });
     router.push(`/g/${group.id}`);
   };
 
@@ -185,7 +202,7 @@ function CreateGroupForm({ onClose }: { onClose: () => void }) {
           </Select>
         </Field>
 
-        <Field label="People" hint={cloudEnabled ? "Put your name first. Other people will claim their names through the invite link." : "One per line, or separated by commas. You can add more later."}>
+        {!cloudEnabled ? <Field label="People" hint="One per line, or separated by commas. You can add more later.">
           <textarea
             value={names}
             onChange={(e) => setNames(e.target.value)}
@@ -193,7 +210,7 @@ function CreateGroupForm({ onClose }: { onClose: () => void }) {
             placeholder={"Ana\nBen\nChris"}
             className="w-full bg-surface border border-border rounded-xl px-3.5 py-2.5 placeholder:text-faint focus:border-accent focus:outline-none transition-colors resize-y"
           />
-        </Field>
+        </Field> : null}
         {problem ? <p role="alert" className="text-sm text-negative">{problem}</p> : null}
 
         <div className="flex gap-2 pt-1">

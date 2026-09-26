@@ -17,10 +17,8 @@ export async function cloudUserId(): Promise<string> {
   const api = cloud();
   const { data: session, error: sessionError } = await api.auth.getSession();
   if (sessionError) throw sessionError;
-  if (session.session?.user.id) return session.session.user.id;
-  const { data, error } = await api.auth.signInAnonymously();
-  if (error || !data.user) throw error ?? new Error("Couldn't start your session.");
-  return data.user.id;
+  if (session.session?.user.id && !session.session.user.is_anonymous) return session.session.user.id;
+  throw new Error("Sign in to continue.");
 }
 
 interface GroupRow { id: string; data: Group; version: number; invite_code: string; owner_uid: string }
@@ -30,6 +28,8 @@ export interface CloudSnapshot {
   invites: Record<string, string>;
   identities: Record<string, string>;
   owners: Record<string, boolean>;
+  invitations: { group_id: string; group_name: string }[];
+  username: string;
 }
 
 export function applyClaims(group: Group, claims: ClaimRow[]): Group {
@@ -52,14 +52,18 @@ export function applyClaims(group: Group, claims: ClaimRow[]): Group {
 export async function loadCloud(): Promise<CloudSnapshot> {
   const userId = await cloudUserId();
   const api = cloud();
-  const [groupsResult, usersResult, claimsResult] = await Promise.all([
+  const [groupsResult, usersResult, claimsResult, invitesResult, profileResult] = await Promise.all([
     api.from("cost_groups").select("id,data,version,invite_code,owner_uid").order("updated_at", { ascending: false }),
     api.from("cost_group_users").select("group_id,member_id"),
     api.from("cost_receipt_claims").select("group_id,entry_id,item_id,user_uid,member_id,selected"),
+    api.from("cost_group_invitations").select("group_id,group_name"),
+    api.from("cost_profiles").select("username").eq("user_uid", userId).single(),
   ]);
   if (groupsResult.error) throw groupsResult.error;
   if (usersResult.error) throw usersResult.error;
   if (claimsResult.error) throw claimsResult.error;
+  if (invitesResult.error) throw invitesResult.error;
+  if (profileResult.error) throw profileResult.error;
   const rows = groupsResult.data as GroupRow[];
   const claims = claimsResult.data as ClaimRow[];
   return {
@@ -67,7 +71,19 @@ export async function loadCloud(): Promise<CloudSnapshot> {
     invites: Object.fromEntries(rows.map((row) => [row.id, row.invite_code])),
     identities: Object.fromEntries(usersResult.data.map((row) => [row.group_id, row.member_id])),
     owners: Object.fromEntries(rows.map((row) => [row.id, row.owner_uid === userId])),
+    invitations: invitesResult.data,
+    username: profileResult.data.username,
   };
+}
+
+export async function inviteUsername(groupId: string, username: string): Promise<void> {
+  const { error } = await cloud().rpc("invite_cost_username", { p_group_id: groupId, p_username: username });
+  if (error) throw error;
+}
+
+export async function acceptInvitation(groupId: string): Promise<void> {
+  const { error } = await cloud().rpc("accept_cost_invitation", { p_group_id: groupId });
+  if (error) throw error;
 }
 
 export async function createCloudGroup(group: Group): Promise<void> {

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { StoreProvider } from "@/lib/store";
+import { AuthGate } from "@/components/AuthGate";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     template: "%s · Cost Split",
   },
   description:
-    "Track shared expenses on a trip or in a household, split them evenly or unevenly, and settle up in the fewest possible payments. Works offline, no account needed.",
+    "Track shared expenses on a trip or in a household, split them evenly or unevenly, and settle up in the fewest possible payments.",
   applicationName: "Cost Split",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Cost Split", statusBarStyle: "default" },
@@ -34,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="antialiased">
-        <StoreProvider>{children}</StoreProvider>
+        <StoreProvider><AuthGate>{children}</AuthGate></StoreProvider>
       </body>
     </html>
   );

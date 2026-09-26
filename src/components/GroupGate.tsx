@@ -34,8 +34,8 @@ export function GroupGate({
         <AppBar title="Group not found" back={{ href: "/", label: "Back to groups" }} />
         <Screen>
           <EmptyState
-            title="This group isn't on this device"
-            body="Groups are stored in the browser that created them. If it was made somewhere else, export it there and import the file here."
+            title="Group not found"
+            body="Sign in with the account that belongs to this group, or ask the owner to invite your username."
             action={
               <LinkButton href="/" variant="primary">
                 Back to groups

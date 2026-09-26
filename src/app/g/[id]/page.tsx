@@ -127,7 +127,7 @@ function GroupView({ group, tab, onTab }: { group: Group; tab: Tab; onTab: (t: T
           </LinkButton>
         </div>
         {cloudEnabled ? <p className="mt-2 text-sm text-muted no-print">
-          Each person can pick items on their phone. <Link className="text-accent underline underline-offset-2" href={`/g/${group.id}/settings`}>Copy the invite link</Link>
+          Each person can pick items on their phone. <Link className="text-accent underline underline-offset-2" href={`/g/${group.id}/settings`}>Invite a username</Link>
         </p> : null}
 
         <div className="mt-5 no-print">
