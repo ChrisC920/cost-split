@@ -49,7 +49,7 @@ export default function NewReceiptPage() {
       }
       const payerId = group.members[0]?.id ?? "";
       const items: ReceiptItem[] = parsed.items.map((item) => ({
-        id: newId(), ...item, memberIds: payerId ? [payerId] : [],
+        id: newId(), ...item, memberIds: [],
       }));
       const amount = parsed.total ?? items.reduce((sum, item) => sum + item.amount, 0);
       const now = Date.now();
@@ -57,7 +57,7 @@ export default function NewReceiptPage() {
       addEntry(group.id, {
         kind: "expense", id, title: parsed.title, amount, currency: group.baseCurrency,
         date: new Date(now - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10),
-        payerId, split: receiptSplit(amount, items), category: "food", photoId,
+        payerId, split: receiptSplit(amount, items, payerId), category: "food", photoId,
         receiptItems: items, createdAt: now, updatedAt: now,
       });
       router.push(`/g/${group.id}/receipt/${id}${scanError ? `?scanError=${encodeURIComponent(scanError)}` : ""}`);

@@ -37,23 +37,24 @@ export function parseReceipt(text: string, currency: string): ParsedReceipt {
 }
 
 /** Allocate item prices and any tax/tip difference without losing a cent. */
-export function receiptShares(total: number, items: ReceiptItem[]): Map<string, number> {
+export function receiptShares(total: number, items: ReceiptItem[], payerId: string): Map<string, number> {
   const shares = new Map<string, number>();
-  const claimed = items.filter((item) => item.amount > 0 && item.memberIds.length > 0);
-  if (!claimed.length) return shares;
-  const itemTotals = claimed.map((item) => item.amount);
+  const priced = items.filter((item) => item.amount > 0);
+  if (!priced.length) return shares;
+  const itemTotals = priced.map((item) => item.amount);
   const remainder = total - itemTotals.reduce((sum, amount) => sum + amount, 0);
   const extras = distribute(remainder, itemTotals);
-  claimed.forEach((item, index) => {
-    const allocated = distribute(item.amount + extras[index], item.memberIds.map(() => 1));
-    item.memberIds.forEach((id, participant) => shares.set(id, (shares.get(id) ?? 0) + allocated[participant]));
+  priced.forEach((item, index) => {
+    const owners = item.memberIds.length ? item.memberIds : [payerId];
+    const allocated = distribute(item.amount + extras[index], owners.map(() => 1));
+    owners.forEach((id, participant) => shares.set(id, (shares.get(id) ?? 0) + allocated[participant]));
   });
   return shares;
 }
 
-export function receiptSplit(total: number, items: ReceiptItem[]) {
+export function receiptSplit(total: number, items: ReceiptItem[], payerId: string) {
   return {
     mode: "exact" as const,
-    entries: [...receiptShares(total, items)].map(([memberId, value]) => ({ memberId, value })),
+    entries: [...receiptShares(total, items, payerId)].map(([memberId, value]) => ({ memberId, value })),
   };
 }

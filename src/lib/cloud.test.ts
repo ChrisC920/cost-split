@@ -14,6 +14,28 @@ const group: Group = {
 };
 
 describe("cloud receipt claims", () => {
+  it("leaves new receipt items unchecked until someone claims them", () => {
+    const fresh: Group = { ...group, entries: group.entries.map((entry) => entry.kind === "expense"
+      ? { ...entry, receiptItems: [{ id: "coffee", name: "Coffee", amount: 1000, memberIds: [] }] }
+      : entry) };
+    const result = applyClaims(fresh, []);
+    const receipt = result.entries[0];
+    if (receipt.kind !== "expense") throw new Error("Expected expense");
+    expect(receipt.receiptItems?.[0].memberIds).toEqual([]);
+    expect(receipt.split.entries).toEqual([{ memberId: "a", value: 1100 }]);
+  });
+
+  it("lets the payer uncheck the last claim without checking it again on refresh", () => {
+    const claims = [
+      { group_id: "group", entry_id: "entry", item_id: "coffee", user_uid: "user-a", member_id: "a", selected: false },
+    ];
+    const result = applyClaims(group, claims);
+    const receipt = result.entries[0];
+    if (receipt.kind !== "expense") throw new Error("Expected expense");
+    expect(receipt.receiptItems?.[0].memberIds).toEqual([]);
+    expect(receipt.split.entries).toEqual([{ memberId: "a", value: 1100 }]);
+  });
+
   it("keeps the payer until they opt out, then uses each person's own claim", () => {
     const claims = [
       { group_id: "group", entry_id: "entry", item_id: "coffee", user_uid: "user-b", member_id: "b", selected: true },

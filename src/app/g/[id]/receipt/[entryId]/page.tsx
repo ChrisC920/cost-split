@@ -30,7 +30,7 @@ function ReceiptEditor({ groupId, entry, members }: { groupId: string; entry: Ex
   const { updateEntry, removeEntry, getIdentity, setReceiptClaim } = useStore();
   const router = useRouter();
   const [photo, setPhoto] = useState<string | null>(null);
-  const [personId, setPersonId] = useState(getIdentity(groupId) ?? members[0]?.id ?? "");
+  const [personId, setPersonId] = useState(members[0]?.id ?? "");
   const [title, setTitle] = useState(entry.title);
   const [amount, setAmount] = useState(formatAmount(entry.amount, entry.currency));
   const [payerId, setPayerId] = useState(entry.payerId);
@@ -40,6 +40,7 @@ function ReceiptEditor({ groupId, entry, members }: { groupId: string; entry: Ex
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [busyItemId, setBusyItemId] = useState<string | null>(null);
 
   useEffect(() => {
     setScanError(new URLSearchParams(window.location.search).get("scanError"));
@@ -49,21 +50,20 @@ function ReceiptEditor({ groupId, entry, members }: { groupId: string; entry: Ex
     if (entry.photoId) void getPhoto(entry.photoId).then(setPhoto);
   }, [entry.photoId]);
   useEffect(() => {
-    if (cloudEnabled) {
-      const identity = getIdentity(groupId);
-      if (identity) setPersonId(identity);
-      return;
-    }
+    if (cloudEnabled) return;
     const saved = window.localStorage.getItem(`cost-split:person:${groupId}`);
     if (saved && members.some((member) => member.id === saved)) setPersonId(saved);
-  }, [groupId, members, getIdentity]);
+  }, [groupId, members]);
 
-  const selected = members.find((member) => member.id === personId);
+  const activePersonId = cloudEnabled ? getIdentity(groupId) ?? "" : personId;
+  const selected = members.find((member) => member.id === activePersonId);
   const parsedItems: ReceiptItem[] = items.map((item) => ({
-    ...item, name: item.name.trim(), amount: parseAmount(item.amount, entry.currency) ?? 0,
+    ...item,
+    memberIds: entry.receiptItems?.find((saved) => saved.id === item.id)?.memberIds ?? item.memberIds,
+    name: item.name.trim(), amount: parseAmount(item.amount, entry.currency) ?? 0,
   }));
   const parsedTotal = parseAmount(amount, entry.currency);
-  const shares = receiptShares(parsedTotal ?? 0, parsedItems);
+  const shares = receiptShares(parsedTotal ?? 0, parsedItems, payerId);
   const subtotal = parsedItems.reduce((sum, item) => sum + item.amount, 0);
 
   const save = () => {
@@ -72,31 +72,28 @@ function ReceiptEditor({ groupId, entry, members }: { groupId: string; entry: Ex
     if (parsedTotal === null || parsedTotal <= 0) return setError("Enter a total greater than zero.");
     if (!items.length) return setError("Add at least one item.");
     if (parsedItems.some((item) => !item.name || item.amount <= 0)) return setError("Each item needs a name and price.");
-    if (parsedItems.some((item) => item.memberIds.length === 0)) return setError("Every item needs at least one person.");
     updateEntry(groupId, { ...entry, title: title.trim(), amount: parsedTotal, payerId,
-      receiptItems: parsedItems, split: receiptSplit(parsedTotal, parsedItems) });
+      receiptItems: parsedItems, split: receiptSplit(parsedTotal, parsedItems, payerId) });
     setNotice("Receipt saved.");
   };
 
   const toggle = async (itemId: string) => {
     setError(null);
     const currentItem = entry.receiptItems?.find((item) => item.id === itemId);
-    if (!currentItem) return;
-    const mine = currentItem.memberIds.includes(personId);
-    if (mine && currentItem.memberIds.length === 1) {
-      setError("Someone must cover this item. Ask another person to pick it first.");
-      return;
-    }
+    if (!currentItem || !activePersonId || busyItemId) return;
+    const mine = currentItem.memberIds.includes(activePersonId);
     if (cloudEnabled) {
+      setBusyItemId(itemId);
       try { await setReceiptClaim(groupId, entry.id, itemId, !mine); }
       catch (cause) { setError(cause instanceof Error ? cause.message : "Couldn't save your choice."); }
+      finally { setBusyItemId(null); }
       return;
     }
     const next = (entry.receiptItems ?? []).map((item) => {
       if (item.id !== itemId) return item;
-      return { ...item, memberIds: mine ? item.memberIds.filter((id) => id !== personId) : [...item.memberIds, personId] };
+      return { ...item, memberIds: mine ? item.memberIds.filter((id) => id !== activePersonId) : [...item.memberIds, activePersonId] };
     });
-    updateEntry(groupId, { ...entry, receiptItems: next, split: receiptSplit(entry.amount, next) });
+    updateEntry(groupId, { ...entry, receiptItems: next, split: receiptSplit(entry.amount, next, entry.payerId) });
     setItems((current) => current.map((item) => {
       const saved = next.find((candidate) => candidate.id === item.id);
       return saved ? { ...item, memberIds: saved.memberIds } : item;
@@ -123,20 +120,21 @@ function ReceiptEditor({ groupId, entry, members }: { groupId: string; entry: Ex
             window.localStorage.setItem(`cost-split:person:${groupId}`, event.target.value);
           }}>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</Select>}
         </Field>
-        <p className="text-sm text-muted">Tap the items you want. Each tap saves your choice and updates the group balance.</p>
+        <p className="text-sm text-muted">Tap the items you want. Unclaimed items stay with the payer in the balance until someone picks them.</p>
         <div className="divide-y divide-border border-y border-border">
           {(entry.receiptItems ?? []).map((item) => {
-            const mine = item.memberIds.includes(personId);
-            return <button key={item.id} type="button" onClick={() => void toggle(item.id)} aria-pressed={mine}
+            const mine = item.memberIds.includes(activePersonId);
+            return <button key={item.id} type="button" onClick={() => void toggle(item.id)} role="checkbox" aria-checked={mine}
+              disabled={!activePersonId || busyItemId !== null}
               className="w-full flex items-center gap-3 py-3 text-left">
               <span className={`inline-flex h-5 w-5 items-center justify-center rounded border ${mine ? "bg-accent border-accent text-accent-fg" : "border-border-strong"}`}>{mine ? "✓" : ""}</span>
               <span className="flex-1 min-w-0"><span className="block font-medium truncate">{item.name}</span>
-                <span className="block text-xs text-muted">{item.memberIds.map((id) => members.find((member) => member.id === id)?.name).filter(Boolean).join(", ") || "No one"}</span></span>
+                <span className="block text-xs text-muted">{busyItemId === item.id ? "Saving choice…" : item.memberIds.map((id) => members.find((member) => member.id === id)?.name).filter(Boolean).join(", ") || "Unclaimed · payer covers this until picked"}</span></span>
               <span className="tnum">{formatAmount(item.amount, entry.currency)}</span>
             </button>;
           })}
         </div>
-        <p className="font-semibold">{selected?.name ?? "Your"} share: {formatAmount(shares.get(personId) ?? 0, entry.currency)} {entry.currency}</p>
+        <p className="font-semibold">{selected?.name ?? "Your"} share: {formatAmount(shares.get(activePersonId) ?? 0, entry.currency)} {entry.currency}</p>
       </Card>
 
       {photo ? <Card className="p-4"><p className="text-sm font-medium mb-2">Original receipt</p>
@@ -157,7 +155,7 @@ function ReceiptEditor({ groupId, entry, members }: { groupId: string; entry: Ex
           <div className="w-24 shrink-0"><Input aria-label={`${item.name || "Item"} price`} inputMode="decimal" value={item.amount} onChange={(event) => setItems((current) => current.map((other) => other.id === item.id ? { ...other, amount: event.target.value } : other))} className="tnum" /></div>
           <button type="button" aria-label={`Remove ${item.name}`} className="text-negative px-1 shrink-0" onClick={() => setItems((current) => current.filter((other) => other.id !== item.id))}>×</button>
         </div>)}</div>
-        <Button type="button" onClick={() => setItems((current) => [...current, { id: newId(), name: "", amount: "", memberIds: payerId ? [payerId] : [] }])}>Add item</Button>
+        <Button type="button" onClick={() => setItems((current) => [...current, { id: newId(), name: "", amount: "", memberIds: [] }])}>Add item</Button>
         <p className="text-sm text-muted">Items: {formatAmount(subtotal, entry.currency)} · Tax, tip, and other difference: {formatAmount((parsedTotal ?? 0) - subtotal, entry.currency)}</p>
         {error ? <Banner tone="negative">{error}</Banner> : null}
         {notice ? <Banner>{notice}</Banner> : null}

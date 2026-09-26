@@ -37,12 +37,14 @@ export function applyClaims(group: Group, claims: ClaimRow[]): Group {
     if (entry.kind !== "expense" || !entry.receiptItems) return entry;
     const items: ReceiptItem[] = entry.receiptItems.map((item) => {
       const rows = claims.filter((claim) => claim.group_id === group.id && claim.entry_id === entry.id && claim.item_id === item.id);
-      const members = new Set(rows.filter((row) => row.selected).map((row) => row.member_id));
-      const payerChoice = rows.find((row) => row.member_id === entry.payerId);
-      if (!payerChoice || payerChoice.selected || members.size === 0) members.add(entry.payerId);
+      const members = new Set(item.memberIds);
+      for (const row of rows) {
+        if (row.selected) members.add(row.member_id);
+        else members.delete(row.member_id);
+      }
       return { ...item, memberIds: [...members] };
     });
-    return { ...entry, receiptItems: items, split: receiptSplit(entry.amount, items) };
+    return { ...entry, receiptItems: items, split: receiptSplit(entry.amount, items, entry.payerId) };
   });
   return { ...group, entries };
 }

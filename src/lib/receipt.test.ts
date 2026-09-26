@@ -15,9 +15,18 @@ describe("receipt splitting", () => {
       { id: "a", name: "Coffee", amount: 400, memberIds: ["a", "b"] },
       { id: "b", name: "Sandwich", amount: 600, memberIds: ["b"] },
     ];
-    const shares = receiptShares(1100, items);
+    const shares = receiptShares(1100, items, "a");
     expect(shares.get("a")).toBe(220);
     expect(shares.get("b")).toBe(880);
-    expect(computeShares(1100, receiptSplit(1100, items)).error).toBeUndefined();
+    expect(computeShares(1100, receiptSplit(1100, items, "a")).error).toBeUndefined();
+  });
+
+  it("keeps unclaimed items in the balance under the payer until someone picks them", () => {
+    const items = [
+      { id: "a", name: "Coffee", amount: 400, memberIds: [] },
+      { id: "b", name: "Sandwich", amount: 600, memberIds: ["b"] },
+    ];
+    expect([...receiptShares(1100, items, "a")]).toEqual([["a", 440], ["b", 660]]);
+    expect(computeShares(1100, receiptSplit(1100, items, "a")).error).toBeUndefined();
   });
 });
